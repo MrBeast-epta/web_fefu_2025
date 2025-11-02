@@ -17,12 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include
 from django.urls import path
-from django.shortcuts import redirect
 
 
 urlpatterns = [
     path('admin/', admin.site.urls), 
     path('', include('fefu_lab.urls')),
+
 ]
-from django.conf.urls import handler404
-handler404 = 'fefu_lab.views.page_not_found'
+
+
