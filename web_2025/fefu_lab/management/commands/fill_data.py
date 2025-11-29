@@ -152,3 +152,9 @@ class Command(BaseCommand):
                 f'{len(enrollments)} записей на курсы'
             )
         )
+# Связываем преподавателей с пользователями
+teacher_users = User.objects.filter(student_profile__role='TEACHER')
+for i, instructor in enumerate(instructors):
+    if i < len(teacher_users):
+        instructor.user = teacher_users[i]
+        instructor.save()

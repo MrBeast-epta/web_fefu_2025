@@ -1,8 +1,20 @@
 from django.db import models
 from django.urls import reverse
 from django.core.validators import MinValueValidator
+import os
+from django.contrib.auth.models import User
+
+def user_avatar_path(instance, filename):
+
+    return f'avatars/user_{instance.user.id}/{filename}'
 
 class Student(models.Model):
+    ROLE_CHOICES = [
+        ('STUDENT', 'Студент'),
+        ('TEACHER', 'Преподаватель'),
+        ('ADMIN', 'Администратор'),
+    ]
+    
     FACULTY_CHOICES = [
         ('CS', 'Кибербезопасность'),
         ('SE', 'Программная инженерия'),
@@ -11,6 +23,14 @@ class Student(models.Model):
         ('WEB', 'Веб-технологии'),
     ]
     
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='student_profile',
+        verbose_name='Пользователь',
+        null=True,
+        blank=True
+    )
     first_name = models.CharField(
         max_length=100,
         verbose_name='Имя'
@@ -34,18 +54,51 @@ class Student(models.Model):
         default='CS',
         verbose_name='Факультет'
     )
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name='Телефон'
+    )
+    avatar = models.ImageField(
+        upload_to=user_avatar_path,
+        blank=True,
+        null=True,
+        verbose_name='Аватар'
+    )
+    bio = models.TextField(
+        blank=True,
+        verbose_name='О себе'
+    )
+    role = models.CharField(
+        max_length=10,
+        choices=ROLE_CHOICES,
+        default='STUDENT',
+        verbose_name='Роль'
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Дата создания'
     )
     
     class Meta:
-        verbose_name = 'Студент'
-        verbose_name_plural = 'Студенты'
+        verbose_name = 'Профиль студента'
+        verbose_name_plural = 'Профили студентов'
         ordering = ['last_name', 'first_name']
     
     def __str__(self):
         return f"{self.last_name} {self.first_name}"
+    
+    def save(self, *args, **kwargs):
+
+        if self.user:
+            self.first_name = self.user.first_name
+            self.last_name = self.user.last_name
+            self.email = self.user.email
+        super().save(*args, **kwargs)
+    
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}"
 
 class Instructor(models.Model):
     first_name = models.CharField(max_length=100, verbose_name='Имя')

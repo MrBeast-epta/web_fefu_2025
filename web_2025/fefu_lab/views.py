@@ -1,8 +1,175 @@
 from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib.auth import login, logout, authenticate
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib import messages
 from django.db import IntegrityError
 from .models import Student, Course, Enrollment, Instructor
-from .forms import StudentForm, EnrollmentForm
+from .forms import StudentForm, EnrollmentForm, UserRegisterForm, UserLoginForm, UserUpdateForm, StudentProfileForm
 
+# Декораторы для проверки ролей
+def is_student(user):
+    return hasattr(user, 'student_profile') and user.student_profile.role == 'STUDENT'
+
+def is_teacher(user):
+    return hasattr(user, 'student_profile') and user.student_profile.role == 'TEACHER'
+
+def is_admin(user):
+    return hasattr(user, 'student_profile') and user.student_profile.role == 'ADMIN'
+
+# Представления аутентификации
+def register_view(request):
+    if request.method == 'POST':
+        form = UserRegisterForm(request.POST)
+        if form.is_valid():
+            try:
+                user = form.save()
+                
+                # Создаем профиль студента
+                student = Student.objects.create(
+                    user=user,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    email=user.email,
+                    role='STUDENT'
+                )
+                
+                # Автоматический вход после регистрации
+                login(request, user)
+                messages.success(request, 'Регистрация прошла успешно!')
+                return redirect('profile')
+            except IntegrityError as e:
+                messages.error(request, f'Ошибка при создании профиля: {e}')
+    else:
+        form = UserRegisterForm()
+    
+    return render(request, 'fefu_lab/registration/register.html', {
+        'form': form,
+        'title': 'Регистрация'
+    })
+
+def login_view(request):
+    if request.method == 'POST':
+        form = UserLoginForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data.get('username')
+            password = form.cleaned_data.get('password')
+            user = authenticate(request, username=username, password=password)
+            
+            if user is not None:
+                login(request, user)
+                messages.success(request, f'Добро пожаловать, {user.first_name}!')
+                next_url = request.GET.get('next', 'profile')
+                return redirect(next_url)
+            else:
+                messages.error(request, 'Неверный email или пароль')
+    else:
+        form = UserLoginForm()
+    
+    return render(request, 'fefu_lab/registration/login.html', {
+        'form': form,
+        'title': 'Вход в систему'
+    })
+
+def logout_view(request):
+    logout(request)
+    messages.info(request, 'Вы успешно вышли из системы')
+    return redirect('home')
+
+@login_required
+def profile_view(request):
+    # Получаем или создаем профиль студента
+    student_profile, created = Student.objects.get_or_create(
+        user=request.user,
+        defaults={
+            'first_name': request.user.first_name,
+            'last_name': request.user.last_name,
+            'email': request.user.email,
+            'role': 'STUDENT'
+        }
+    )
+    
+    if request.method == 'POST':
+        user_form = UserUpdateForm(request.POST, instance=request.user)
+        profile_form = StudentProfileForm(request.POST, request.FILES, instance=student_profile)
+        
+        if user_form.is_valid() and profile_form.is_valid():
+            user_form.save()
+            profile_form.save()
+            messages.success(request, 'Профиль успешно обновлен!')
+            return redirect('profile')
+    else:
+        user_form = UserUpdateForm(instance=request.user)
+        profile_form = StudentProfileForm(instance=student_profile)
+    
+    return render(request, 'fefu_lab/registration/profile.html', {
+        'user_form': user_form,
+        'profile_form': profile_form,
+        'title': 'Мой профиль'
+    })
+
+# Личные кабинеты
+@login_required
+def student_dashboard(request):
+    if not is_student(request.user):
+        messages.error(request, 'Доступ запрещен')
+        return redirect('home')
+    
+    student_profile = request.user.student_profile
+    enrollments = Enrollment.objects.filter(student=student_profile).select_related('course')
+    
+    return render(request, 'fefu_lab/dashboard/student_dashboard.html', {
+        'student': student_profile,
+        'enrollments': enrollments,
+        'title': 'Личный кабинет студента'
+    })
+
+@login_required
+@user_passes_test(is_teacher)
+def teacher_dashboard(request):
+    teacher_profile = request.user.student_profile
+    courses = Course.objects.filter(instructor__email=request.user.email)
+    
+    return render(request, 'fefu_lab/dashboard/teacher_dashboard.html', {
+        'teacher': teacher_profile,
+        'courses': courses,
+        'title': 'Личный кабинет преподавателя'
+    })
+
+@login_required
+@user_passes_test(is_admin)
+def admin_dashboard(request):
+    return render(request, 'fefu_lab/dashboard/admin_dashboard.html', {
+        'title': 'Панель администратора'
+    })
+
+# Обновляем существующие представления с проверкой доступа
+@login_required
+def enrollment_view(request):
+    if not is_student(request.user):
+        messages.error(request, 'Только студенты могут записываться на курсы')
+        return redirect('home')
+    
+    if request.method == 'POST':
+        form = EnrollmentForm(request.POST)
+        if form.is_valid():
+            try:
+                enrollment = form.save(commit=False)
+                enrollment.student = request.user.student_profile
+                enrollment.status = 'ACTIVE'
+                enrollment.save()
+                messages.success(request, 'Вы успешно записались на курс!')
+                return redirect('student_dashboard')
+            except IntegrityError:
+                form.add_error(None, 'Вы уже записаны на этот курс')
+    else:
+        form = EnrollmentForm()
+    
+    return render(request, 'fefu_lab/enrollment.html', {
+        'form': form,
+        'title': 'Запись на курс'
+    })
+
+# Существующие представления остаются
 def home_page(request):
     total_students = Student.objects.count()
     total_courses = Course.objects.filter(is_active=True).count()
@@ -25,19 +192,23 @@ def student_list(request):
     })
 
 def student_detail(request, pk):
-    try:
-        student = get_object_or_404(Student, pk=pk)
-        enrollments = Enrollment.objects.filter(student=student).select_related('course')
-        
-        return render(request, 'fefu_lab/student_detail.html', {
-            'student': student,
-            'enrollments': enrollments,
-            'title': f'Студент: {student.first_name} {student.last_name}'
-        })
-    except Exception as e:
-        print(f"Ошибка в student_detail: {e}")
-        # В случае ошибки редирект на список студентов
-        return redirect('student_list')
+    student = get_object_or_404(Student, pk=pk)
+    enrollments = Enrollment.objects.filter(student=student).select_related('course')
+    
+    # Проверяем, может ли пользователь просматривать профиль
+    can_edit = request.user.is_authenticated and (
+        request.user == student.user or 
+        (hasattr(request.user, 'student_profile') and 
+         request.user.student_profile.role in ['TEACHER', 'ADMIN'])
+    )
+    
+    return render(request, 'fefu_lab/student_detail.html', {
+        'student': student,
+        'enrollments': enrollments,
+        'can_edit': can_edit,
+        'title': f'Студент: {student.full_name}'
+    })
+
 def course_list(request):
     courses = Course.objects.filter(is_active=True).select_related('instructor')
     return render(request, 'fefu_lab/course_list.html', {
@@ -55,47 +226,6 @@ def course_detail(request, slug):
         'title': f'Курс: {course.title}'
     })
 
-def enrollment_view(request):
-    if request.method == 'POST':
-        form = EnrollmentForm(request.POST)
-        if form.is_valid():
-            try:
-                enrollment = form.save(commit=False)
-                enrollment.status = 'ACTIVE'
-                enrollment.save()
-                return redirect('enrollment_success')
-            except IntegrityError:
-                form.add_error(None, 'Этот студент уже записан на данный курс')
-    else:
-        form = EnrollmentForm()
-    
-    return render(request, 'fefu_lab/enrollment.html', {
-        'form': form,
-        'title': 'Запись на курс'
-    })
-
-def register_student(request):
-    if request.method == 'POST':
-        form = StudentForm(request.POST)
-        if form.is_valid():
-            try:
-                student = form.save()
-                # ВРЕМЕННО: редирект на список студентов вместо деталей
-                return redirect('student_list')
-                # ИЛИ на главную страницу:
-                # return redirect('home')
-            except IntegrityError:
-                form.add_error('email', 'Студент с таким email уже существует')
-            except Exception as e:
-                print(f"Ошибка при регистрации: {e}")
-                form.add_error(None, f'Произошла ошибка: {e}')
-    else:
-        form = StudentForm()
-    
-    return render(request, 'fefu_lab/register.html', {
-        'form': form,
-        'title': 'Регистрация студента'
-    })
 def enrollment_success(request):
     return render(request, 'fefu_lab/enrollment_success.html', {
         'title': 'Запись успешно создана'
