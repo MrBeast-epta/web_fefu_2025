@@ -1,0 +1,90 @@
+# Django
+
+*.pyc
+
+*.pyo
+
+*.pyd
+
+__pycache__/
+
+db.sqlite3
+
+*.log
+
+local_settings.py
+
+
+
+# Virtual Environment
+
+venv/
+
+env/
+
+.venv/
+
+
+
+# Docker
+
+.dockerignore
+
+!django/.dockerignore 
+# IDE
+
+.idea/
+
+.vscode/
+
+*.swp
+
+*.swo
+
+
+
+# OS
+
+.DS_Store
+
+Thumbs.db
+
+
+
+# Sensitive data
+
+.env
+
+.env.dev
+
+.env.prod
+
+secrets/
+
+keys/
+
+
+
+# Docker volumes
+
+data/
+
+media/
+
+static/
+
+
+
+# Backups
+
+*.backup
+
+*.bak
+
+
+
+# Temporary
+
+tmp/
+
+temp/
